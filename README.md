@@ -31,7 +31,7 @@ Point at a different list without touching the playbook:
 `inventory/devices.csv` is the only file your NOC needs to edit:
 
     hostname,address,platform,site
-    cmts-rva-01,10.0.0.1,cisco.ios,Roanoke
+    cmts-rva-01,10.0.0.1,cisco.ios,Market
 
 The `platform` column is per-device so you can branch to another OS later
 without restructuring anything.
