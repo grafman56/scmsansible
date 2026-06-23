@@ -1,0 +1,5 @@
+hostname,address,site,reachable,total,reg,unreg,offline,wideband
+{% for h in groups['cmts'] | sort %}
+{% set hv = hostvars[h] %}
+{{ h }},{{ hv.ansible_host | default('') }},{{ hv.site | default('') }},{{ hv.reachable | default(false) }},{{ hv.modem_summary.total | default('') }},{{ hv.modem_summary.reg | default('') }},{{ hv.modem_summary.unreg | default('') }},{{ hv.modem_summary.offline | default('') }},{{ hv.modem_summary.wideband | default('') }}
+{% endfor %}

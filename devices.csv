@@ -1,0 +1,4 @@
+hostname,address,platform,site
+cmts-rva-01,10.0.0.1,cisco.ios,Roanoke
+cmts-rva-02,10.0.0.2,cisco.ios,Roanoke
+cmts-rva-03,10.0.0.3,cisco.ios,Roanoke

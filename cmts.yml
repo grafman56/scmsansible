@@ -1,0 +1,13 @@
+---
+ansible_connection:  ansible.netcommon.network_cli
+ansible_network_os:  cisco.ios
+
+# Pull creds from env (or swap these lookups for Vault-backed vars).
+# Export before running:  export CMTS_USER=... CMTS_PASS=...
+ansible_user:        "{{ lookup('env', 'CMTS_USER') }}"
+ansible_password:    "{{ lookup('env', 'CMTS_PASS') }}"
+
+# Uncomment if the show command requires enable on your boxes:
+# ansible_become:          true
+# ansible_become_method:   enable
+# ansible_become_password: "{{ lookup('env', 'CMTS_ENABLE') }}"

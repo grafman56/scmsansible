@@ -1,0 +1,118 @@
+---
+# =============================================================================
+# cmts_modem_count.yml
+#
+# Reads an external CSV device list, polls each CMTS for
+# 'show cable modem summary total' in parallel, and writes one CSV report.
+#
+#   ansible-playbook cmts_modem_count.yml
+#   ansible-playbook cmts_modem_count.yml -e device_list=inventory/lab.csv
+# =============================================================================
+
+# ----------------------------------------------------------------------------
+# Play 1: turn the external CSV into a live host group
+# ----------------------------------------------------------------------------
+- name: Build CMTS group from external device list
+  hosts: localhost
+  gather_facts: false
+  vars:
+    device_list: "inventory/devices.csv"
+  tasks:
+    - name: Read external device list
+      community.general.read_csv:
+        path: "{{ device_list }}"
+      register: devices
+
+    - name: Add each CMTS to the cmts group
+      ansible.builtin.add_host:
+        name: "{{ item.hostname }}"
+        groups: cmts
+        ansible_host: "{{ item.address }}"
+        ansible_network_os: "{{ item.platform | default('cisco.ios') }}"
+        site: "{{ item.site | default('') }}"
+      loop: "{{ devices.list }}"
+      changed_when: false
+
+# ----------------------------------------------------------------------------
+# Play 2: poll every CMTS at once and parse the aggregate line
+# 'strategy: free' lets fast boxes finish without waiting on slow ones.
+# ----------------------------------------------------------------------------
+- name: Collect cable modem summary counts
+  hosts: cmts
+  gather_facts: false
+  strategy: free
+  vars:
+    # Column order in the 'Total' row of YOUR IOS-XE train. Verify once
+    # against real output and adjust if your build differs (see README).
+    cmts_summary_columns: [total, reg, unreg, offline, wideband]
+  tasks:
+    - name: Run show cable modem summary total
+      cisco.ios.ios_command:
+        commands:
+          - show cable modem summary total
+      register: cm_out
+      ignore_unreachable: true
+      ignore_errors: true
+
+    - name: Parse the aggregate Total row
+      when: cm_out.stdout is defined and (cm_out.stdout | length) > 0
+      block:
+        - name: Isolate the line that starts with 'Total'
+          ansible.builtin.set_fact:
+            _summary_line: >-
+              {{ (cm_out.stdout[0].splitlines()
+                  | select('match', '^\s*Total')
+                  | list | first) | default('') }}
+
+        - name: Pull every integer out of that line
+          ansible.builtin.set_fact:
+            _counts: "{{ _summary_line | regex_findall('\\d+') }}"
+
+        - name: Map the integers onto named columns
+          ansible.builtin.set_fact:
+            modem_summary: >-
+              {{ dict(cmts_summary_columns[:(_counts | length)]
+                      | zip(_counts | map('int') | list)) }}
+            reachable: true
+
+        - name: Per-device result
+          ansible.builtin.debug:
+            msg: "{{ inventory_hostname }} :: {{ modem_summary }}"
+
+    - name: Flag unreachable or unparseable devices
+      when: cm_out.stdout is not defined or (cm_out.stdout | length) == 0
+      ansible.builtin.set_fact:
+        modem_summary: {}
+        reachable: false
+
+# ----------------------------------------------------------------------------
+# Play 3: roll everything up into one timestamped CSV
+# ----------------------------------------------------------------------------
+- name: Render consolidated report
+  hosts: localhost
+  gather_facts: false
+  vars:
+    report_dir: "reports"
+  tasks:
+    - name: Ensure report directory exists
+      ansible.builtin.file:
+        path: "{{ report_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Write CSV report
+      ansible.builtin.template:
+        src: templates/report.csv.j2
+        dest: "{{ report_dir }}/cmts_modem_counts_{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}.csv"
+        mode: "0644"
+
+    - name: Summary line
+      ansible.builtin.debug:
+        msg: >-
+          Polled {{ groups['cmts'] | length }} CMTS,
+          {{ groups['cmts'] | map('extract', hostvars, 'reachable')
+             | select('defined') | select | list | length }} reachable.
+          Grand total modems:
+          {{ groups['cmts'] | map('extract', hostvars)
+             | map(attribute='modem_summary.total', default=0)
+             | map('int') | sum }}
